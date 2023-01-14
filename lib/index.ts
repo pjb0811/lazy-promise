@@ -1,3 +1,9 @@
+type LazyPromiseHandler<T> = (
+  resolve: (result: T | LazyPromise<T>) => void,
+  reject: (reason: Error) => void,
+) => void;
+type OnFulfilledHandler<T> = (result: T) => LazyPromise<T>;
+type OnRejectedHandler = (reason: Error) => void;
 /* 
 interface LazyPromise<T> {
   new (handler: LazyPromiseHandler<T>): LazyPromise<T>;
@@ -14,16 +20,10 @@ const STATE: { [key: string]: string } = {
   PENDING: 'pending',
   REJECTED: 'rejected',
 };
-
-type LazyPromiseHandler<T> = (
-  resolve: (result: T | LazyPromise<T>) => void,
-  reject: (reason: Error) => void,
-) => void;
-type OnFulfilledHandler<T> = (result: T) => LazyPromise<T>;
-type OnRejectedHandler = (reason: Error) => void;
 class LazyPromise<T> {
-  private state = STATE.PENDING;
   private result: T | LazyPromise<T> | Error | null = null;
+  private state = STATE.PENDING;
+
   private onFulfilled: OnFulfilledHandler<T> | null = null;
   private onRejected: OnRejectedHandler | null = null;
 
@@ -34,8 +34,6 @@ class LazyPromise<T> {
   };
 
   constructor(handler: LazyPromiseHandler<T>) {
-    this.state = STATE.PENDING;
-
     try {
       handler(this._resolve.bind(this), this._reject.bind(this));
     } catch (e) {
@@ -52,9 +50,7 @@ class LazyPromise<T> {
   }
 
   static resolve<T>(result: T): LazyPromise<T> {
-    const isPromise = result instanceof LazyPromise;
-
-    if (isPromise) {
+    if (result instanceof LazyPromise) {
       return result;
     }
     return new LazyPromise(resolve => resolve(result));
@@ -65,27 +61,22 @@ class LazyPromise<T> {
   }
 
   _resolve(result: T | LazyPromise<T>) {
-    console.log(this);
-    if (this.result) {
-      throw new Error('then() or catch() could not be called more than once');
-    }
-
     if (this.state !== STATE.PENDING) {
       return;
     }
-    this.state == STATE.FULFILLED;
+
+    this.state = STATE.FULFILLED;
     this.result = result;
 
-    queueMicrotask(() => {
+    queueMicrotask(async () => {
       if (!this.onFulfilled) {
         return;
       }
 
       try {
         const value = this.onFulfilled(result as T);
-        const isPromise = value instanceof LazyPromise;
 
-        if (isPromise) {
+        if (value instanceof LazyPromise) {
           value.then(this.resolveCallback);
         } else {
           this.resolveCallback(value);
@@ -102,17 +93,20 @@ class LazyPromise<T> {
     }
 
     this.state == STATE.REJECTED;
-    this.result = e;
 
     queueMicrotask(() => {
       if (!this.onRejected) {
         return;
       }
-      this.onRejected(this.result as Error);
+      this.onRejected(e as Error);
     });
   }
 
   then(onFulfilled: OnFulfilledHandler<T>): LazyPromise<T> {
+    if (this.result && (this.onFulfilled || this.onRejected)) {
+      throw new Error('then() or catch() could not be called more than once');
+    }
+
     this.onFulfilled = onFulfilled;
 
     return new LazyPromise((resolve, reject) => {
@@ -125,6 +119,10 @@ class LazyPromise<T> {
   }
 
   catch(onRejected: OnRejectedHandler): void {
+    if (this.result && (this.onFulfilled || this.onRejected)) {
+      throw new Error('then() or catch() could not be called more than once');
+    }
+
     this.onRejected = onRejected;
 
     new LazyPromise((_, reject) => {
@@ -133,73 +131,65 @@ class LazyPromise<T> {
   }
 }
 
-const promise = LazyPromise.resolve(3);
-promise.then((res: any) => {
-  return res + 1;
-});
-promise.then((res: any) => {
-  return res + 1;
-});
-promise.catch(e => {
-  console.log(e);
-});
-
-/* LazyPromise.resolve<any>(1)
+/* const promise = LazyPromise.resolve(1);
+promise
   .then((res: any) => {
     console.log('start', res);
-    return res + 1;
+    return res + 2;
   })
   .then((res: any) => {
-    return res + 1;
-  })
-  .then((res: any) => {
-    return res + 1;
-  })
-  .then(res => {
-    return new LazyPromise(resolve => {
-      setTimeout(() => resolve(res + 1), 1000);
-    });
-  })
-  .then(res => {
-    return new LazyPromise(resolve => {
-      setTimeout(() => resolve(res + 1), 1000);
-    });
-  })
-  .then(res => {
     console.log('end', res);
+    return res + 3;
+  })
+  .catch(err => {
+    console.log(err);
+  }); */
+
+LazyPromise.resolve<any>(1)
+  .then(res => {
+    console.log('start', res);
+    return new LazyPromise(resolve => {
+      setTimeout(() => resolve(res + 1), 1000);
+    });
+  })
+  .then(res => {
+    return new LazyPromise(resolve => {
+      setTimeout(() => resolve(res + 1), 1000);
+    });
+  })
+  .then(res => {
+    return new LazyPromise(resolve => {
+      setTimeout(() => resolve(res + 1), 1000);
+    });
+  })
+  .then(res => {
+    return new LazyPromise(resolve => {
+      setTimeout(() => resolve(res + 1), 1000);
+    });
+  })
+  .then(res => {
+    console.log('finish', res);
     return res;
   })
   .catch(err => {
     console.log('error', err);
-  }); */
+  });
 
-/* LazyPromise.resolve('첫번째')
-  .then((res: any) => {
-    console.log(res);
-    return '두번째 프라미스' as any;
-  })
-  .then((res: any) => {
-    console.log(res);
-    return new LazyPromise((resolve: any, reject: any) => {
-      setTimeout(() => {
-        resolve('세번째 프라미스');
-      }, 1000);
+/* 
+// then() or catch() could not be called more than once
+const promise = LazyPromise.resolve(3);
+promise.then((res) => res + 1);
+promise.then((res) => res + 10); // it should throw an error!
+promise.catch((err) => {}); // it should also throw an error!
+// method chaining is still valid though
+// the following code prints out 14 (3+1+10)
+LazyPromise.resolve(3)
+  .then((res) => res + 1)
+  .then((res) => {
+    return new LazyPromise((resolve) => {
+    setTimeout(() => resolve(res + 10), 10);
     });
   })
-  .then((res: any) => {
-    console.log(res);
-    return new LazyPromise((resolve: any, reject: any) => {
-      setTimeout(() => {
-        reject('네번째 프라미스');
-      }, 1000);
-    });
-  })
-  .then((res: any) => {
-    console.log(res);
-    // throw 하면 캐치로 가지만, 프로미스에서는 then 건너뛰고 캐치로 감
-    throw new Error('이 에러는 catch에 잡힙니다.');
-  })
-  .catch((err: any) => {
-    console.error('error', err);
-    return new Error('이 에러는 then에 잡힙니다.');
-  }); */
+  .then((res) => console.log(res))
+  .catch((err) => {});
+*/
