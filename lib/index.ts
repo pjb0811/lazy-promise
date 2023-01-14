@@ -4,16 +4,16 @@ type LazyPromiseHandler<T> = (
 ) => void;
 type OnFulfilledHandler<T> = (result: T) => LazyPromise<T>;
 type OnRejectedHandler = (reason: Error) => void;
-/* 
+
 interface LazyPromise<T> {
   new (handler: LazyPromiseHandler<T>): LazyPromise<T>;
-  static all(iterable: LazyPromise<T>[]): LazyPromise<T[]>;
-  static allSync(iterable: LazyPromise<T>[]): LazyPromise<T[]>;
-  static resolve(result: T): LazyPromise<T>;
-  static reject(reason: Error): LazyPromise<T>;
+  all(iterable: LazyPromise<T>[]): LazyPromise<T[]>;
+  allSync(iterable: LazyPromise<T>[]): LazyPromise<T[]>;
+  resolve(result: T): LazyPromise<T>;
+  reject(reason: Error): LazyPromise<T>;
   then(onFulfilled: OnFulfilledHandler<T>): LazyPromise<T>;
   catch(onRejected: OnRejectedHandler): void;
-} */
+}
 
 const STATE: { [key: string]: string } = {
   PENDING: 'pending',
@@ -22,15 +22,13 @@ const STATE: { [key: string]: string } = {
 };
 
 class LazyPromise<T> {
-  // private result: T | LazyPromise<T> | Error | null = null;
-  // private state = STATE.PENDING;
-  private loading = false;
+  private state = STATE.PENDING;
+  private result: T | LazyPromise<T> | Error | null = null;
 
   private onFulfilled: OnFulfilledHandler<T> | null = null;
   private onRejected: OnRejectedHandler | null = null;
 
-  private resolveCallback: (result: T) => LazyPromise<T> | void = () => {};
-  private rejectCallback: (e: Error) => void = () => {};
+  resolveQueue: (() => void)[] = [];
 
   constructor(handler: LazyPromiseHandler<T>) {
     try {
@@ -38,6 +36,91 @@ class LazyPromise<T> {
     } catch (e) {
       this._reject(e as Error);
     }
+  }
+
+  then(onFulfilled: OnFulfilledHandler<T>): LazyPromise<T> {
+    if (this.onFulfilled || this.onRejected) {
+      throw new Error('then() or catch() could not be called more than once');
+    }
+
+    this.onFulfilled = onFulfilled;
+
+    if (this.state === STATE.PENDING) {
+      return new LazyPromise(resolve => {
+        this.resolveQueue.push(() => resolve(onFulfilled(this.result as T)));
+      });
+    }
+
+    if (this.state === STATE.FULFILLED) {
+      return new LazyPromise(resolve => resolve(onFulfilled(this.result as T)));
+    }
+
+    return this;
+  }
+
+  catch(onRejected: OnRejectedHandler) {
+    if (this.onFulfilled || this.onRejected) {
+      throw new Error('then() or catch() could not be called more than once');
+    }
+
+    this.onRejected = onRejected;
+
+    if (this.state === STATE.PENDING) {
+      return;
+    }
+
+    if (this.state === STATE.REJECTED) {
+      setTimeout(onRejected, 0);
+    }
+  }
+
+  _resolve(result: T | LazyPromise<T>) {
+    if (this.state !== STATE.PENDING) {
+      return;
+    }
+
+    try {
+      if (result instanceof LazyPromise) {
+        result.then((innerResult: T): any => {
+          this.state = STATE.FULFILLED;
+          this.result = innerResult;
+          this.resolveQueue.forEach(resolve => setTimeout(resolve, 0));
+        });
+      } else {
+        this.state = STATE.FULFILLED;
+        this.result = result;
+        this.resolveQueue.forEach(resolve => setTimeout(resolve, 0));
+      }
+    } catch (e) {
+      this.state = STATE.REJECTED;
+
+      setTimeout(
+        this.onRejected
+          ? this.onRejected
+          : () => {
+              throw e;
+            },
+        0,
+      );
+    }
+  }
+
+  _reject(reason: Error) {
+    if (this.state !== STATE.PENDING) {
+      return;
+    }
+
+    this.state = STATE.REJECTED;
+    this.result = reason;
+
+    setTimeout(
+      this.onRejected
+        ? this.onRejected
+        : () => {
+            throw this.result;
+          },
+      0,
+    );
   }
 
   static all<T>(iterable: LazyPromise<T>[]) {
@@ -48,7 +131,7 @@ class LazyPromise<T> {
       for (let i = 0; i < iterable.length; i += 1) {
         const promise = iterable[i];
         promise
-          .then((result: T): any => {
+          .then((result: T) => {
             console.log(result);
             results[i] = result;
             count += 1;
@@ -56,6 +139,7 @@ class LazyPromise<T> {
             if (count == iterable.length) {
               resolve(results);
             }
+            return promise;
           })
           .catch(reject);
       }
@@ -64,18 +148,32 @@ class LazyPromise<T> {
 
   static allSync<T>(iterable: LazyPromise<T>[]) {
     return new LazyPromise((resolve, reject) => {
-      const results: T[] = [];
-
-      (async () => {
+      /* (async () => {
+        const results: T[] = [];
         try {
           for await (let result of iterable) {
+            console.log(result);
             results.push(result);
           }
           resolve(results);
         } catch (e) {
           reject(e as Error);
         }
-      })();
+      })(); */
+      /* const results: T[] = [];
+      const syncPromise = (i: number) => {
+        iterable[i].then((result: T): any => {
+          console.log(result, i);
+          results.push(result);
+
+          if (i === iterable.length - 1) {
+            resolve(results);
+          } else {
+            syncPromise(i + 1);
+          }
+        });
+      };
+      syncPromise(0); */
     });
   }
 
@@ -89,89 +187,9 @@ class LazyPromise<T> {
   static reject<T>(reason: Error): LazyPromise<T> {
     return new LazyPromise((_, reject) => reject(reason));
   }
-
-  _resolve(result: T | LazyPromise<T>) {
-    /* if (this.state !== STATE.PENDING) {
-      return;
-    }
-
-    this.state = STATE.FULFILLED;
-    this.result = result; */
-
-    if (this.loading) {
-      return;
-    }
-
-    this.loading = true;
-
-    queueMicrotask(async () => {
-      if (!this.onFulfilled) {
-        return;
-      }
-
-      try {
-        const value = this.onFulfilled(result as T);
-
-        if (value instanceof LazyPromise) {
-          value.then(this.resolveCallback as any);
-        } else {
-          this.resolveCallback(value);
-        }
-      } catch (e) {
-        this.rejectCallback(e as Error);
-      }
-    });
-  }
-
-  _reject(e: Error) {
-    /* if (this.state !== STATE.PENDING) {
-      return;
-    }
-
-    this.state = STATE.REJECTED;
-    this.result = e; */
-
-    if (this.loading) {
-      return;
-    }
-
-    this.loading = true;
-
-    queueMicrotask(() => {
-      if (!this.onRejected) {
-        this.rejectCallback(e);
-        return;
-      }
-      this.onRejected(e as Error);
-    });
-  }
-
-  then(onFulfilled: OnFulfilledHandler<T>): LazyPromise<T> {
-    if (this.onFulfilled || this.onRejected) {
-      throw new Error('then() or catch() could not be called more than once');
-    }
-
-    this.onFulfilled = onFulfilled;
-
-    return new LazyPromise((resolve, reject) => {
-      this.resolveCallback = resolve;
-      this.rejectCallback = reject;
-    });
-  }
-
-  catch(onRejected: OnRejectedHandler): void {
-    if (this.onFulfilled || this.onRejected) {
-      throw new Error('then() or catch() could not be called more than once');
-    }
-
-    this.onRejected = onRejected;
-
-    new LazyPromise((_, reject) => {
-      this.rejectCallback = reject;
-    });
-  }
 }
 
+/* 
 LazyPromise.all([
   new LazyPromise(resolve => {
     setTimeout(() => {
@@ -191,18 +209,19 @@ LazyPromise.all([
 ]).then((res: any) => {
   console.log(res);
   return res;
-});
+}); 
+*/
 
-/* LazyPromise.allSync([
+LazyPromise.allSync([
   new LazyPromise(resolve => {
     setTimeout(() => {
       resolve(1);
-    }, 3000);
+    }, 1000);
   }),
   new LazyPromise(resolve => {
     setTimeout(() => {
       resolve(2);
-    }, 2000);
+    }, 1000);
   }),
   new LazyPromise(resolve => {
     setTimeout(() => {
@@ -210,9 +229,9 @@ LazyPromise.all([
     }, 1000);
   }),
 ]).then((res: any) => {
-  console.log(res);
+  console.log('finish', res);
   return res;
-}); */
+});
 
 /* const promise = LazyPromise.resolve(1);
 promise
@@ -235,25 +254,25 @@ promise
       setTimeout(() => resolve(res + 1), 1000);
     });
   })
-  .then(res => {
+  .then((res: any) => {
     return new LazyPromise(resolve => {
       setTimeout(() => resolve(res + 1), 1000);
     });
   })
-  .then(res => {
+  .then((res: any) => {
     return new LazyPromise(resolve => {
       setTimeout(() => resolve(res + 1), 1000);
     });
   })
-  .then(res => {
+  .then((res: any) => {
     return new LazyPromise(resolve => {
       setTimeout(() => resolve(res + 1), 1000);
     });
   })
-  .then(res => {
+  .then((res: any) => {
     console.log('finish', res);
     return res;
   })
-  .catch(err => {
+  .catch((err: any) => {
     console.log('error', err);
   }); */
