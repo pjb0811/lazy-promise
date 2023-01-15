@@ -28,7 +28,7 @@ class LazyPromise<T> {
   private onFulfilled: OnFulfilledHandler<T> | null = null;
   private onRejected: OnRejectedHandler | null = null;
 
-  resolveQueue: (() => void)[] = [];
+  queue: (() => void)[] = [];
 
   constructor(handler: LazyPromiseHandler<T>) {
     try {
@@ -47,7 +47,7 @@ class LazyPromise<T> {
 
     if (this.state === STATE.PENDING) {
       return new LazyPromise(resolve => {
-        this.resolveQueue.push(() => resolve(onFulfilled(this.result as T)));
+        this.queue.push(() => resolve(onFulfilled(this.result as T)));
       });
     }
 
@@ -66,11 +66,13 @@ class LazyPromise<T> {
     this.onRejected = onRejected;
 
     if (this.state === STATE.PENDING) {
-      return;
+      new LazyPromise(resolve => {
+        this.queue.push(() => resolve(onRejected(this.result as Error)));
+      });
     }
 
     if (this.state === STATE.REJECTED) {
-      setTimeout(onRejected, 0);
+      new LazyPromise(resolve => resolve(onRejected(this.result as Error)));
     }
   }
 
@@ -84,24 +86,17 @@ class LazyPromise<T> {
         result.then((innerResult: T): any => {
           this.state = STATE.FULFILLED;
           this.result = innerResult;
-          this.resolveQueue.forEach(resolve => setTimeout(resolve, 0));
+          this.queue.forEach(resolve => setTimeout(resolve, 0));
         });
       } else {
         this.state = STATE.FULFILLED;
         this.result = result;
-        this.resolveQueue.forEach(resolve => setTimeout(resolve, 0));
+        this.queue.forEach(resolve => setTimeout(resolve, 0));
       }
     } catch (e) {
       this.state = STATE.REJECTED;
-
-      setTimeout(
-        this.onRejected
-          ? this.onRejected
-          : () => {
-              throw e;
-            },
-        0,
-      );
+      this.result = e as Error;
+      this.queue.forEach(reject => setTimeout(reject, 0));
     }
   }
 
@@ -113,14 +108,7 @@ class LazyPromise<T> {
     this.state = STATE.REJECTED;
     this.result = reason;
 
-    setTimeout(
-      this.onRejected
-        ? this.onRejected
-        : () => {
-            throw this.result;
-          },
-      0,
-    );
+    this.queue.forEach(reject => setTimeout(reject, 0));
   }
 
   static all<T>(iterable: LazyPromise<T>[]) {
@@ -132,7 +120,6 @@ class LazyPromise<T> {
         const promise = iterable[i];
         promise
           .then((result: T) => {
-            console.log(result);
             results[i] = result;
             count += 1;
 
@@ -148,32 +135,23 @@ class LazyPromise<T> {
 
   static allSync<T>(iterable: LazyPromise<T>[]) {
     return new LazyPromise((resolve, reject) => {
-      /* (async () => {
-        const results: T[] = [];
+      const results: T[] = [];
+      const syncPromise = (i: number) => {
         try {
-          for await (let result of iterable) {
-            console.log(result);
+          iterable[i].then((result: T): any => {
             results.push(result);
-          }
-          resolve(results);
+
+            if (i === iterable.length - 1) {
+              resolve(results);
+            } else {
+              syncPromise(i + 1);
+            }
+          });
         } catch (e) {
           reject(e as Error);
         }
-      })(); */
-      /* const results: T[] = [];
-      const syncPromise = (i: number) => {
-        iterable[i].then((result: T): any => {
-          console.log(result, i);
-          results.push(result);
-
-          if (i === iterable.length - 1) {
-            resolve(results);
-          } else {
-            syncPromise(i + 1);
-          }
-        });
       };
-      syncPromise(0); */
+      syncPromise(0);
     });
   }
 
@@ -189,90 +167,4 @@ class LazyPromise<T> {
   }
 }
 
-/* 
-LazyPromise.all([
-  new LazyPromise(resolve => {
-    setTimeout(() => {
-      resolve(1);
-    }, 3000);
-  }),
-  new LazyPromise(resolve => {
-    setTimeout(() => {
-      resolve(2);
-    }, 2000);
-  }),
-  new LazyPromise(resolve => {
-    setTimeout(() => {
-      resolve(3);
-    }, 1000);
-  }),
-]).then((res: any) => {
-  console.log(res);
-  return res;
-}); 
-*/
-
-LazyPromise.allSync([
-  new LazyPromise(resolve => {
-    setTimeout(() => {
-      resolve(1);
-    }, 1000);
-  }),
-  new LazyPromise(resolve => {
-    setTimeout(() => {
-      resolve(2);
-    }, 1000);
-  }),
-  new LazyPromise(resolve => {
-    setTimeout(() => {
-      resolve(3);
-    }, 1000);
-  }),
-]).then((res: any) => {
-  console.log('finish', res);
-  return res;
-});
-
-/* const promise = LazyPromise.resolve(1);
-promise
-  .then((res: any) => {
-    console.log('start', res);
-    return res + 2;
-  })
-  .then((res: any) => {
-    console.log('end', res);
-    return res + 3;
-  })
-  .catch(err => {
-    console.log(err);
-  }); */
-
-/* LazyPromise.resolve<any>(1)
-  .then(res => {
-    console.log('start', res);
-    return new LazyPromise(resolve => {
-      setTimeout(() => resolve(res + 1), 1000);
-    });
-  })
-  .then((res: any) => {
-    return new LazyPromise(resolve => {
-      setTimeout(() => resolve(res + 1), 1000);
-    });
-  })
-  .then((res: any) => {
-    return new LazyPromise(resolve => {
-      setTimeout(() => resolve(res + 1), 1000);
-    });
-  })
-  .then((res: any) => {
-    return new LazyPromise(resolve => {
-      setTimeout(() => resolve(res + 1), 1000);
-    });
-  })
-  .then((res: any) => {
-    console.log('finish', res);
-    return res;
-  })
-  .catch((err: any) => {
-    console.log('error', err);
-  }); */
+export default LazyPromise;
