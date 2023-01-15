@@ -42,7 +42,7 @@ describe('LazyPromise', () => {
       });
   });
 
-  test('The code using all() outputs [3, 2, 1]', done => {
+  test('The code using all() outputs [1, 2, 3]', done => {
     LazyPromise.all([
       new LazyPromise(resolve => {
         setTimeout(() => {
@@ -60,7 +60,7 @@ describe('LazyPromise', () => {
         }, 1000);
       }),
     ]).then(res => {
-      expect(res).toEqual([3, 2, 1]);
+      expect(res).toEqual([1, 2, 3]);
       done();
     });
   });

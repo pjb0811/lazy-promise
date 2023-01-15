@@ -120,7 +120,7 @@ class LazyPromise<T> {
         for (let i = 0; i < iterable.length; i += 1) {
           const promise = iterable[i];
           promise.then(result => {
-            results.push(result);
+            results[i] = result;
             count += 1;
             if (count === iterable.length) {
               resolve(results);
