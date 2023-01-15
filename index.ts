@@ -111,7 +111,7 @@ class LazyPromise<T> {
     this.queue.forEach(reject => reject());
   }
 
-  static all<T>(iterable: LazyPromise<T>[]) {
+  static all<T>(iterable: LazyPromise<T>[]): LazyPromise<T[]> {
     return new LazyPromise((resolve, reject) => {
       const results: T[] = [];
       let count = 0;
@@ -134,7 +134,7 @@ class LazyPromise<T> {
     });
   }
 
-  static allSync<T>(iterable: LazyPromise<T>[]) {
+  static allSync<T>(iterable: LazyPromise<T>[]): LazyPromise<T[]> {
     return new LazyPromise((resolve, reject) => {
       const results: T[] = [];
       const syncPromise = (i: number) => {

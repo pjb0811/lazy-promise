@@ -1,9 +1,4 @@
-# lazy-promise
-
-## Usage
-
-```javascript
-import LazyPromise from './index.js';
+import LazyPromise from '../index.js';
 
 LazyPromise.resolve(3)
   .then(res => res + 1)
@@ -70,10 +65,3 @@ LazyPromise.allSync([
 ]).then(res => {
   console.log(res);
 });
-```
-
-## Test
-
-```sh
-npm run test
-```

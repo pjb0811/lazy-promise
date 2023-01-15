@@ -5,6 +5,7 @@
   "main": "index.js",
   "types": "index.d.ts",
   "scripts": {
+    "dev": "node example/index.js",
     "build": "tsc",
     "test": "jest"
   },
@@ -20,5 +21,6 @@
   "homepage": "https://github.com/pjb0811/lazy-promise#readme",
   "devDependencies": {
     "typescript": "^4.9.4"
-  }
+  },
+  "type": "module"
 }

@@ -19,8 +19,8 @@ declare class LazyPromise<T> {
     constructor(handler: LazyPromiseHandler<T>);
     _resolve(result: T | LazyPromise<T>): void;
     _reject(reason: Error): void;
-    static all<T>(iterable: LazyPromise<T>[]): LazyPromise<unknown>;
-    static allSync<T>(iterable: LazyPromise<T>[]): LazyPromise<unknown>;
+    static all<T>(iterable: LazyPromise<T>[]): LazyPromise<T[]>;
+    static allSync<T>(iterable: LazyPromise<T>[]): LazyPromise<T[]>;
     static resolve<T>(result: T): LazyPromise<T>;
     static reject<T>(reason: Error): LazyPromise<T>;
 }
