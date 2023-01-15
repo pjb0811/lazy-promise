@@ -86,17 +86,17 @@ class LazyPromise<T> {
         result.then((innerResult: T): any => {
           this.state = STATE.FULFILLED;
           this.result = innerResult;
-          this.queue.forEach(resolve => setTimeout(resolve, 0));
+          this.queue.forEach(resolve => resolve());
         });
       } else {
         this.state = STATE.FULFILLED;
         this.result = result;
-        this.queue.forEach(resolve => setTimeout(resolve, 0));
+        this.queue.forEach(resolve => resolve());
       }
     } catch (e) {
       this.state = STATE.REJECTED;
       this.result = e as Error;
-      this.queue.forEach(reject => setTimeout(reject, 0));
+      this.queue.forEach(reject => reject());
     }
   }
 
@@ -108,7 +108,7 @@ class LazyPromise<T> {
     this.state = STATE.REJECTED;
     this.result = reason;
 
-    this.queue.forEach(reject => setTimeout(reject, 0));
+    this.queue.forEach(reject => reject());
   }
 
   static all<T>(iterable: LazyPromise<T>[]) {
@@ -116,19 +116,20 @@ class LazyPromise<T> {
       const results: T[] = [];
       let count = 0;
 
-      for (let i = 0; i < iterable.length; i += 1) {
-        const promise = iterable[i];
-        promise
-          .then((result: T) => {
-            results[i] = result;
+      try {
+        for (let i = 0; i < iterable.length; i += 1) {
+          const promise = iterable[i];
+          promise.then(result => {
+            results.push(result);
             count += 1;
-
-            if (count == iterable.length) {
+            if (count === iterable.length) {
               resolve(results);
             }
             return promise;
-          })
-          .catch(reject);
+          });
+        }
+      } catch (e) {
+        reject(e as Error);
       }
     });
   }
@@ -138,7 +139,8 @@ class LazyPromise<T> {
       const results: T[] = [];
       const syncPromise = (i: number) => {
         try {
-          iterable[i].then((result: T): any => {
+          const promise = iterable[i];
+          promise.then((result: T) => {
             results.push(result);
 
             if (i === iterable.length - 1) {
@@ -146,6 +148,7 @@ class LazyPromise<T> {
             } else {
               syncPromise(i + 1);
             }
+            return promise;
           });
         } catch (e) {
           reject(e as Error);
